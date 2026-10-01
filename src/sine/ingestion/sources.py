@@ -1,11 +1,10 @@
 """Source registry for local listening-history imports."""
 
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
-from sine.models import ListeningEvent
-from sine.ingestion import IngestionAdapter
 from sine.ingestion import apple_music, lastfm, listenbrainz, spotify, youtube_music
+from sine.models import ListeningEvent
 
 
 Loader = Callable[[Path], list[ListeningEvent]]
