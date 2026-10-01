@@ -1,6 +1,6 @@
 # Contributing to sine
 
-Sine is an LLM-powered music recommendation system built around Apple Music-derived listening history.
+Sine is an LLM-powered music recommendation system built around listening history from music services and imported sources.
 
 ## Project context
 
