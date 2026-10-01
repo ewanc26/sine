@@ -4,7 +4,8 @@ Sine is an LLM-powered music recommendation system built around Apple Music-deri
 
 ## Project context
 
-- Primary purpose: music recommendation from listening history
+- Primary language: Python 3.12
+- Package manager: uv
 - Default branch: main
 - Project status: early-stage
 
@@ -17,4 +18,4 @@ Sine is an LLM-powered music recommendation system built around Apple Music-deri
 
 ## Recent direction
 
-Recent commits: docs: align agent guidance with repository conventions; docs: align README with repository conventions; docs: add agent guidance; docs: add project README
+Recent commits: feat: establish Python project foundation; docs: align repository documentation with ewanc26 conventions; docs: align agent guidance with repository conventions
