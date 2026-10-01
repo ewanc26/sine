@@ -5,6 +5,10 @@ A :class:`RecommendationRequest` states what the caller wants. A
 responsible for labelling its own output: a model may propose a track, but Sine
 decides whether that track is new, familiar, or a replay, because those are
 facts about the history rather than claims about taste.
+
+A playlist is the same set with an order attached: :class:`PlaylistRequest` asks
+for a sequence, and :class:`Playlist` is the validated result of that. Ordering is
+the model's contribution; the positions that survive validation are Sine's.
 """
 
 from __future__ import annotations
@@ -114,4 +118,60 @@ class RecommendationSet(HistoryModel):
     recommendations: tuple[Recommendation, ...] = Field(default_factory=tuple)
     notes: str | None = Field(
         default=None, description="Model commentary on the set as a whole."
+    )
+
+
+class PlaylistRequest(RecommendationRequest):
+    """A request for an ordered sequence rather than an unordered set.
+
+    Everything a recommendation request carries still applies. A playlist adds two
+    things: an intent for the sequence as a whole, and an optional length target.
+
+    The length target is a request, not a measurement. Sine does not know how long
+    the recommended tracks are, so it neither states nor verifies their durations; it
+    sizes the request and tells the model how many tracks to aim for.
+    """
+
+    title: str | None = Field(
+        default=None, description="Title or theme the listener asked for."
+    )
+    target_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        le=600,
+        description=(
+            "Approximate length to aim for. Sine cannot verify track durations, so "
+            "this sizes the request rather than being enforced."
+        ),
+    )
+
+
+class PlaylistTrack(Recommendation):
+    """One recommendation placed at a position in a sequence.
+
+    The position is the model's ordering claim. Sine renumbers the positions it
+    keeps, so the sequence it returns is always contiguous from one, whatever the
+    model returned or whatever Sine dropped.
+    """
+
+    position: int = Field(ge=1, description="One-based place in the sequence.")
+    transition: str | None = Field(
+        default=None,
+        description=(
+            "Why this track follows the previous one. Omit for the opening track, "
+            "where there is nothing to transition from."
+        ),
+    )
+
+
+class Playlist(HistoryModel):
+    """The validated output of one playlist request."""
+
+    title: str = Field(min_length=1)
+    intent: str | None = Field(
+        default=None, description="What the sequence is trying to do, in a paragraph."
+    )
+    tracks: tuple[PlaylistTrack, ...] = Field(default_factory=tuple)
+    notes: str | None = Field(
+        default=None, description="Model commentary on the playlist as a whole."
     )

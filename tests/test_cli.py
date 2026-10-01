@@ -994,3 +994,307 @@ def test_recommending_an_empty_history_is_refused_before_a_request_is_sent(
         )
     assert caught.value.code == 2
     assert "has no plays" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------- playlists
+
+
+class PlaylistProvider:
+    """A provider that replies with a playlist and records what it was sent."""
+
+    provider_id = "playlist-provider"
+
+    def __init__(self, payload: object) -> None:
+        self.payload = payload
+        self.requests: list = []
+
+    def capabilities(self, model_id: str):
+        from sine.llm.capabilities import ModelCapabilities, StructuredOutputDialect
+
+        return ModelCapabilities(structured_output=StructuredOutputDialect.JSON_OBJECT)
+
+    def list_models(self):
+        return ()
+
+    def generate(self, model_id, request):
+        from sine.llm.generation import FinishReason, GenerationResponse
+
+        self.requests.append(request)
+        return GenerationResponse(
+            text=json.dumps(self.payload),
+            provider=self.provider_id,
+            model=model_id,
+            finish_reason=FinishReason.STOP,
+        )
+
+    def close(self) -> None:
+        return None
+
+
+def playlist_reply(position: int = 1) -> dict:
+    entry = {
+        "position": position,
+        "track": {"title": f"Pick {position}", "artists": [{"name": "Fresh Face"}]},
+        "rationale": "sits in the sequence",
+        "confidence": "medium",
+        "novelty": "new_artist",
+    }
+    if position > 1:
+        entry["transition"] = "because of what came before"
+    return entry
+
+
+def install_playlist_provider(
+    monkeypatch: pytest.MonkeyPatch, payload: object
+) -> PlaylistProvider:
+    from sine.llm import registry as registry_module
+
+    provider = PlaylistProvider(payload)
+    monkeypatch.setattr(registry_module, "build_provider", lambda *a, **k: provider)
+    return provider
+
+
+def imported_history(tmp_path: Path, data_dir: Path, name: str = "pl") -> None:
+    main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "import",
+            str(simple_history_file(tmp_path)),
+            "--out",
+            name,
+        ]
+    )
+
+
+def test_playlist_flag_prints_an_ordered_sequence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = install_playlist_provider(
+        monkeypatch,
+        {
+            "title": "Late Shift",
+            "intent": "unwind slowly",
+            "tracks": [playlist_reply(position) for position in (2, 1, 3)],
+        },
+    )
+
+    data_dir = tmp_path / "d"
+    imported_history(tmp_path, data_dir)
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "--data-dir",
+                str(data_dir),
+                "recommend",
+                "pl",
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-4o",
+                "--playlist",
+            ]
+        )
+        == 0
+    )
+
+    out = capsys.readouterr().out
+    assert "Late Shift" in out
+    assert "unwind slowly" in out
+    # The order the model gave is the order printed, regardless of reply order.
+    assert out.index("Pick 1") < out.index("Pick 2") < out.index("Pick 3")
+    assert "1. Pick 1" in out
+    assert "3. Pick 3" in out
+    assert "because of what came before" in out
+
+    sent = " ".join(message.content for message in provider.requests[0].messages)
+    assert "one ordered playlist" in sent
+
+
+def test_a_length_target_implies_a_playlist_and_sizes_the_request(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--minutes with no --playlist still asks for a sequence, and tells the model."""
+
+    provider = install_playlist_provider(
+        monkeypatch,
+        {"title": "Long Haul", "tracks": [playlist_reply()]},
+    )
+
+    data_dir = tmp_path / "d"
+    imported_history(tmp_path, data_dir)
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "--data-dir",
+                str(data_dir),
+                "recommend",
+                "pl",
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-4o",
+                "--minutes",
+                "60",
+            ]
+        )
+        == 0
+    )
+
+    sent = " ".join(message.content for message in provider.requests[0].messages)
+    assert "one ordered playlist" in sent
+    assert "roughly 60 minutes" in sent
+    # Sized by an average track length, not a number Sine measured.
+    assert "at most 13 tracks" in sent
+    assert "running time is unknown" in capsys.readouterr().out
+
+
+def test_an_explicit_limit_beats_the_length_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = install_playlist_provider(
+        monkeypatch,
+        {"title": "Short Set", "tracks": [playlist_reply()]},
+    )
+
+    data_dir = tmp_path / "d"
+    imported_history(tmp_path, data_dir)
+    capsys.readouterr()
+
+    main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "recommend",
+            "pl",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o",
+            "--minutes",
+            "60",
+            "--limit",
+            "4",
+        ]
+    )
+
+    sent = " ".join(message.content for message in provider.requests[0].messages)
+    assert "at most 4 tracks" in sent
+
+
+def test_a_playlist_can_be_printed_as_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sine.models.recommendation import Playlist
+
+    install_playlist_provider(
+        monkeypatch,
+        {
+            "title": "Late Shift",
+            "tracks": [playlist_reply()],
+        },
+    )
+
+    data_dir = tmp_path / "d"
+    imported_history(tmp_path, data_dir)
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "--data-dir",
+                str(data_dir),
+                "recommend",
+                "pl",
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-4o",
+                "--playlist-title",
+                "Late Shift",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    playlist = Playlist.model_validate(payload)
+    assert playlist.title == "Late Shift"
+    assert playlist.tracks[0].position == 1
+    assert playlist.tracks[0].novelty.value == "new_artist"
+
+
+def test_a_playlist_title_reaches_the_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = install_playlist_provider(
+        monkeypatch,
+        {"title": "Rainy Window", "tracks": [playlist_reply()]},
+    )
+
+    data_dir = tmp_path / "d"
+    imported_history(tmp_path, data_dir)
+    capsys.readouterr()
+
+    main(
+        [
+            "--data-dir",
+            str(data_dir),
+            "recommend",
+            "pl",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o",
+            "--playlist-title",
+            "Rainy Window",
+        ]
+    )
+
+    sent = " ".join(message.content for message in provider.requests[0].messages)
+    assert "Rainy Window" in sent
+
+
+def test_a_playlist_needs_a_history_to_build_from(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sine.llm import registry as registry_module
+    from sine.models.profile import ListeningProfile
+    from sine.profile.builder import build_profile
+
+    def explode(*args, **kwargs):
+        raise AssertionError("no provider should be built for an empty history")
+
+    monkeypatch.setattr(registry_module, "build_provider", explode)
+
+    data_dir = tmp_path / "d"
+    store = Store(DataConfig(data_dir=data_dir))
+    store.save_history("void", ListeningHistory.from_events(()))
+    store.save_profile(
+        "void",
+        build_profile(ListeningHistory.from_events(()), now=NOW),
+    )
+    assert isinstance(store.profile_path("void"), Path)
+
+    with pytest.raises(SystemExit) as caught:
+        main(
+            [
+                "--data-dir",
+                str(data_dir),
+                "recommend",
+                "void",
+                "--provider",
+                "openai",
+                "--model",
+                "gpt-4o",
+                "--playlist",
+            ]
+        )
+    assert caught.value.code == 2
+    assert "has no plays" in capsys.readouterr().err
+    assert ListeningProfile is not None

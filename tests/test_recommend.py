@@ -23,6 +23,8 @@ from sine.models import (
     Artist,
     ListeningEvent,
     ListeningHistory,
+    Playlist,
+    PlaylistRequest,
     RecommendationFocus,
     RecommendationRequest,
     Track,
@@ -33,6 +35,7 @@ from sine.profile.statistics import DEFAULT_TOP_N
 from sine.recommend.engine import (
     RecommendationEngine,
     RecommendationError,
+    playlist_schema,
     recommendation_schema,
 )
 from sine.recommend.prompts import build_system_prompt, build_user_prompt
@@ -532,3 +535,156 @@ def test_a_generation_request_carries_no_secrets() -> None:
 
 def test_provider_errors_remain_provider_neutral() -> None:
     assert issubclass(ProviderUnavailableError, ProviderError)
+
+
+# --------------------------------------------------------------------- playlists
+
+
+def playlist_entry(
+    title: str, artist: str, position: int, transition: str | None = None
+):
+    """A model-shaped playlist entry, as a playlist request expects one."""
+
+    entry = {
+        "position": position,
+        "track": {"title": title, "artists": [{"name": artist}]},
+        "rationale": "fits the sequence",
+        "confidence": "medium",
+        "novelty": "new_artist",
+    }
+    if transition is not None:
+        entry["transition"] = transition
+    return entry
+
+
+def playlist_payload(*entries: dict, title: str = "Late Shift") -> str:
+    return json.dumps({"title": title, "intent": "unwind slowly", "tracks": entries})
+
+
+def test_a_playlist_keeps_the_order_the_model_asked_for() -> None:
+    payload = playlist_payload(
+        playlist_entry("Second", "Artist B", 2, "the tempo lifts"),
+        playlist_entry("First", "Artist A", 1),
+        playlist_entry("Third", "Artist C", 3, "the drums drop away"),
+    )
+    result = engine_for(StubProvider(payload)).playlist(
+        profile(), PlaylistRequest(limit=5)
+    )
+    assert result.title == "Late Shift"
+    assert [track.track.title for track in result.tracks] == [
+        "First",
+        "Second",
+        "Third",
+    ]
+    assert [track.position for track in result.tracks] == [1, 2, 3]
+    assert result.tracks[0].transition is None
+    assert result.tracks[1].transition == "the tempo lifts"
+
+
+def test_playlist_positions_are_renumbered_after_sine_drops_a_track() -> None:
+    """A gap in the sequence would be a broken playlist, so Sine closes it."""
+
+    heard = profile().statistics.top_tracks[0].item
+    payload = playlist_payload(
+        playlist_entry("First", "Artist A", 1),
+        playlist_entry(heard.title, heard.artists[0].name, 2, "already known"),
+        playlist_entry("Third", "Artist C", 3, "after that"),
+    )
+    result = engine_for(StubProvider(payload)).playlist(
+        profile(), PlaylistRequest(limit=5)
+    )
+    assert [track.track.title for track in result.tracks] == ["First", "Third"]
+    assert [track.position for track in result.tracks] == [1, 2]
+    assert "renumbered" in result.notes
+
+
+def test_playlist_screening_is_the_same_as_for_a_set() -> None:
+    """Exclusions, duplicates, and replays are dropped from a playlist too."""
+
+    entry = playlist_entry("Roygbiv", "Boards of Canada", 1)
+    excluded = playlist_entry("Xtal", "Aphex Twin", 2)
+    payload = playlist_payload(
+        entry, playlist_entry("Roygbiv", "Boards of Canada", 3), excluded
+    )
+    result = engine_for(StubProvider(payload)).playlist(
+        profile(),
+        PlaylistRequest(limit=5, exclude_artists=(Artist(name="Aphex Twin"),)),
+    )
+    assert [track.track.title for track in result.tracks] == ["Roygbiv"]
+    assert "2 track(s) were removed" in result.notes
+
+
+def test_a_playlist_without_transitions_says_so() -> None:
+    """An unexplained sequence is still a sequence, but the gap is reported."""
+
+    payload = playlist_payload(
+        playlist_entry("First", "Artist A", 1),
+        playlist_entry("Second", "Artist B", 2),
+        playlist_entry("Third", "Artist C", 3),
+    )
+    result = engine_for(StubProvider(payload)).playlist(
+        profile(), PlaylistRequest(limit=5)
+    )
+    assert "not every placement was explained" in result.notes
+
+
+def test_a_length_target_is_stated_as_unverified() -> None:
+    """Sine has no duration data, so it must not imply that it hit the target."""
+
+    payload = playlist_payload(playlist_entry("First", "Artist A", 1))
+    result = engine_for(StubProvider(payload)).playlist(
+        profile(), PlaylistRequest(limit=5, target_minutes=45)
+    )
+    assert "running time is unknown" in result.notes
+
+
+def test_playlist_prompts_the_model_not_to_invent_durations() -> None:
+    provider = StubProvider(playlist_payload(playlist_entry("First", "Artist A", 1)))
+    engine_for(provider).playlist(
+        profile(), PlaylistRequest(limit=3, target_minutes=30, title="Rainy Window")
+    )
+    text = " ".join(message.content for message in provider.requests[0].messages)
+    assert "Do not state or estimate track durations" in text
+    assert "30 minutes" in text
+    assert "Rainy Window" in text
+    # The ordering instruction is about the shape of the answer, not just the label.
+    assert "one ordered sequence, not a ranked list" in text
+
+
+def test_the_playlist_schema_asks_for_a_sequence_not_a_set() -> None:
+    schema = playlist_schema()
+    tracks = schema["$defs"]["PlaylistTrack"]["properties"]
+    assert "position" in tracks
+    assert "transition" in tracks
+    assert schema["properties"]["title"]["type"] == "string"
+
+
+def test_a_playlist_reply_that_stays_malformed_raises_a_recoverable_error() -> None:
+    provider = StubProvider("not json", "still not json")
+    with pytest.raises(RecommendationError, match="usable playlist"):
+        engine_for(provider).playlist(profile(), PlaylistRequest(limit=3))
+
+
+def test_a_playlist_is_asked_for_under_the_playlist_schema_name() -> None:
+    provider = StubProvider(playlist_payload(playlist_entry("First", "Artist A", 1)))
+    engine_for(provider).playlist(profile(), PlaylistRequest(limit=3))
+    assert provider.requests[0].response_format.kind == "json_object"
+
+
+def test_a_short_playlist_is_reported_rather_than_padded() -> None:
+    payload = playlist_payload(playlist_entry("First", "Artist A", 1))
+    result = engine_for(StubProvider(payload)).playlist(
+        profile(), PlaylistRequest(limit=8)
+    )
+    assert len(result.tracks) == 1
+    assert "7 short" in result.notes
+    assert "will not pad the gap" in result.notes
+
+
+def test_a_playlist_is_validated_into_the_domain_model() -> None:
+    """The model-facing shape and the validated shape are the same model."""
+
+    playlist = Playlist.model_validate(
+        json.loads(playlist_payload(playlist_entry("First", "Artist A", 1)))
+    )
+    assert playlist.tracks[0].track.artist.name == "Artist A"

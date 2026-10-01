@@ -35,7 +35,7 @@ Two boundaries matter for trusting the output:
 
 **Observation and inference are kept apart.** Everything up to the profile is deterministic: parsing, normalisation, deduplication, and statistics are computed from the history alone, with no model involved. The profile records what was measured, marks every interpretation as an interpretation, and states what the data cannot support. A thin history produces explicit gaps rather than confident nonsense.
 
-**The model is a recommender, not a database.** Whatever it returns is validated against a schema before use, and one malformed reply is repaired once before being reported as an error. Sine then applies what the model cannot be trusted to do itself: drops tracks the listener has already played (unless `--allow-replays`), drops excluded artists and duplicates, and labels each track as a replay, a new track by a known artist, or a new artist. The rendering is deterministic, so `sine profile --context` shows exactly what a model would be sent.
+**The model is a recommender, not a database.** Whatever it returns is validated against a schema before use, and one malformed reply is repaired once before being reported as an error. Sine then applies what the model cannot be trusted to do itself: drops tracks the listener has already played (unless `--allow-replays`), drops excluded artists and duplicates, labels each track as a replay, a new track by a known artist, or a new artist, and renumbers a playlist so its positions stay contiguous. The rendering is deterministic, so `sine profile --context` shows exactly what a model would be sent.
 
 ## Tech Stack
 
@@ -144,6 +144,9 @@ uv run sine profile listens --context
 # Ask the configured model for recommendations.
 uv run sine recommend listens --limit 10 --focus discovery --json
 
+# Or for an ordered playlist, optionally with a length to aim for.
+uv run sine recommend listens --playlist --minutes 90 --playlist-title "Late shift"
+
 uv run sine config      # resolved configuration, never including the credential
 uv run sine models      # models the configured provider reports
 ```
@@ -156,6 +159,24 @@ file and takes a `--preset` field mapping: `sine` (or `generic`, the same shape)
 Timestamps that carry no UTC offset are refused unless `--assume-timezone` is
 given; an unparseable timestamp is reported as a rejected record rather than
 guessed at.
+
+### Playlists
+
+`--playlist`, `--playlist-title`, and `--minutes` ask for a sequence instead of a
+set; the last two imply the first.
+
+- **The order is the model's contribution.** Each track carries the reason it
+  follows the one before it, so a sequence is more than a ranking. Sine prints and
+  returns the order the model gave.
+- **The positions are Sine's.** Anything the history rules out — a replay, an
+  excluded artist, a duplicate — is removed and the sequence is renumbered, so what
+  comes back is contiguous from 1. A gap or a short answer is reported, never
+  padded with tracks of Sine's own.
+- **A length target is an aim, not a measurement.** Sine has no track duration
+  data, so `--minutes` only sizes the request and the model is forbidden from
+  stating durations; the note under the output says the running time is unknown.
+  With no `--limit`, a playlist asks for more tracks than a plain list does, and
+  `--minutes` sizes that count by an average track length.
 
 ### Checks
 
