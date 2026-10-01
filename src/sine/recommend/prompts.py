@@ -20,6 +20,7 @@ from sine.models.recommendation import (
     RecommendationRequest,
 )
 from sine.profile.context import render_profile_context, render_request_context
+from sine.recommend.focus import BASE_GUIDANCE, focus_guidance
 
 SYSTEM_PROMPT = """\
 You are the reasoning component of Sine, a music recommendation tool.
@@ -64,28 +65,18 @@ length and let the listener judge it.
 - Give the sequence a title and say in one paragraph what it is trying to do.
 """
 
-FOCUS_GUIDANCE: Mapping[RecommendationFocus, str] = {
-    RecommendationFocus.DISCOVERY: (
-        "Recommend tracks by artists the listener has not played before, drawn from "
-        "the musical neighbourhood of what they do play."
-    ),
-    RecommendationFocus.DEEPENING: (
-        "Recommend deeper cuts by artists the listener already plays, including "
-        "rarer material, and work that sits alongside their established listening."
-    ),
-    RecommendationFocus.RECENT_ROTATION: (
-        "Weight the listener's most recent listening most heavily. They are asking "
-        "what suits the current phase, not the long run."
-    ),
-    RecommendationFocus.FAMILIARITY: (
-        "Favour well-known, accessible tracks in the listener's own territory. "
-        "Reliability beats novelty here."
-    ),
-    RecommendationFocus.SURPRISE: (
-        "Stretch beyond the obvious. Take the listener's listening seriously but \
-reach past its edge, and explain the connection you are making."
-    ),
-}
+#: The instruction for each focus, before it is adapted to the listener's data.
+FOCUS_GUIDANCE: Mapping[RecommendationFocus, str] = BASE_GUIDANCE
+
+#: Applies to discovery only, and only when the measurements did not already set the
+#: direction: a listener playing thirty artists evenly is not a case for reaching
+#: further out, nor one for a "most of this should be close to home" instruction from
+#: anywhere else, so this is where the nudge belongs.
+BALANCE_NOTE = (
+    "Balance familiarity and discovery: the listener has not asked to be surprised, "
+    "so most recommendations should sit near what they already play rather than far "
+    "from it."
+)
 
 
 def build_system_prompt(
@@ -109,20 +100,21 @@ def build_user_prompt(
 ) -> Message:
     """Build the user message from rendered profile and request context."""
 
+    task = focus_guidance(request.focus, profile.statistics)
     sections = [
         render_profile_context(profile),
         "",
         render_request_context(request),
         "",
         "TASK",
-        FOCUS_GUIDANCE[request.focus],
+        *task,
     ]
-    if request.focus is RecommendationFocus.DISCOVERY and not request.seed_artists:
-        sections.append(
-            "Balance familiarity and discovery: the listener has not asked to be "
-            "surprised, so most recommendations should sit near what they already "
-            "play rather than far from it."
-        )
+    if (
+        request.focus is RecommendationFocus.DISCOVERY
+        and not request.seed_artists
+        and len(task) == 1
+    ):
+        sections.append(BALANCE_NOTE)
     return Message.user("\n".join(sections))
 
 
@@ -144,7 +136,7 @@ def build_playlist_prompt(
         "TASK",
         "Build one ordered sequence, not a ranked list. Every position must earn \
 its place by what it does after the track before it.",
-        FOCUS_GUIDANCE[request.focus],
+        *focus_guidance(request.focus, profile.statistics),
     ]
     if request.title:
         sections.append(f"The listener asked for a playlist called: {request.title}")
@@ -162,7 +154,6 @@ def build_json_reminder(schema: Mapping[str, object]) -> Message:
 
 
 __all__ = [
-    "FOCUS_GUIDANCE",
     "PLAYLIST_RULES",
     "SYSTEM_PROMPT",
     "build_json_reminder",

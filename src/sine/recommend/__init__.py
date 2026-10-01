@@ -7,6 +7,7 @@ from sine.recommend.engine import (
     playlist_schema,
     recommendation_schema,
 )
+from sine.recommend.focus import BASE_GUIDANCE, focus_guidance
 from sine.recommend.prompts import (
     SYSTEM_PROMPT,
     build_playlist_prompt,
@@ -20,6 +21,7 @@ from sine.recommend.validation import (
 )
 
 __all__ = [
+    "BASE_GUIDANCE",
     "MINUTES_PER_TRACK",
     "SYSTEM_PROMPT",
     "RecommendationEngine",
@@ -29,6 +31,7 @@ __all__ = [
     "build_system_prompt",
     "build_user_prompt",
     "extract_json_object",
+    "focus_guidance",
     "parse_model_payload",
     "playlist_schema",
     "recommendation_schema",

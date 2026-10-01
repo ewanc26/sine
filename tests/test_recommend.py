@@ -523,6 +523,44 @@ def test_focus_reaches_the_provider() -> None:
     assert "reach past its edge" in text
 
 
+def test_the_guidance_is_adapted_to_this_listener_not_only_the_focus() -> None:
+    """The same focus produces a different brief for a different history."""
+
+    provider = StubProvider(VALID)
+    engine_for(provider).recommend(
+        profile(), RecommendationRequest(limit=1, focus=RecommendationFocus.DISCOVERY)
+    )
+    text = " ".join(message.content for message in provider.requests[0].messages)
+    # profile() is four artists played repeatedly: a measured reason to reach out.
+    assert "plays are concentrated" in text
+    assert "Reach further out" in text
+
+
+def test_a_playlist_brief_carries_the_same_adapted_guidance() -> None:
+    provider = StubProvider(
+        json.dumps(
+            {
+                "title": "Late Shift",
+                "tracks": [
+                    {
+                        "position": 1,
+                        "track": {"title": "T", "artists": [{"name": "A"}]},
+                        "rationale": "fits",
+                        "confidence": "low",
+                        "novelty": "new_artist",
+                    }
+                ],
+            }
+        )
+    )
+    engine_for(provider).playlist(
+        profile(), PlaylistRequest(limit=3, focus=RecommendationFocus.DISCOVERY)
+    )
+    text = " ".join(message.content for message in provider.requests[0].messages)
+    assert "plays are concentrated" in text
+    assert "Build one ordered sequence" in text
+
+
 def test_a_generation_request_carries_no_secrets() -> None:
     """Only listening context goes to a provider, never local paths."""
 

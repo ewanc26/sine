@@ -35,6 +35,8 @@ Two boundaries matter for trusting the output:
 
 **Observation and inference are kept apart.** Everything up to the profile is deterministic: parsing, normalisation, deduplication, and statistics are computed from the history alone, with no model involved. The profile records what was measured, marks every interpretation as an interpretation, and states what the data cannot support. A thin history produces explicit gaps rather than confident nonsense.
 
+**The brief adapts to the listener.** `--focus` says what kind of answer was asked for, and the instruction that follows it is derived from that listener's own measurements. Asking for discovery from someone whose plays are concentrated asks the model to reach further out; asking the same of someone already playing thirty artists once each tells it that more of the same is not discovery. Every adjustment cites a number from the history and says what the data cannot show, so the brief stays a set of observations rather than a personality assessment.
+
 **The model is a recommender, not a database.** Whatever it returns is validated against a schema before use, and one malformed reply is repaired once before being reported as an error. Sine then applies what the model cannot be trusted to do itself: drops tracks the listener has already played (unless `--allow-replays`), drops excluded artists and duplicates, labels each track as a replay, a new track by a known artist, or a new artist, and renumbers a playlist so its positions stay contiguous. The rendering is deterministic, so `sine profile --context` shows exactly what a model would be sent.
 
 ## Tech Stack
@@ -159,6 +161,14 @@ file and takes a `--preset` field mapping: `sine` (or `generic`, the same shape)
 Timestamps that carry no UTC offset are refused unless `--assume-timezone` is
 given; an unparseable timestamp is reported as a rejected record rather than
 guessed at.
+
+### Focus
+
+`--focus` takes `discovery`, `deepening`, `recent_rotation`, `familiarity`, or
+`surprise`. It names the kind of answer asked for; the instruction that follows it
+is derived from the listener's own statistics, so the same focus produces a
+different brief for a habitual listener and a habitual explorer. `sine profile
+<history> --context` shows the measurements those adjustments are read from.
 
 ### Playlists
 
