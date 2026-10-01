@@ -20,6 +20,7 @@ import httpx
 
 from sine.llm.adapters.anthropic import DEFAULT_BASE_URL as ANTHROPIC_BASE_URL
 from sine.llm.adapters.anthropic import AnthropicProvider
+from sine.llm.adapters.cohere import CohereProvider
 from sine.llm.adapters.gemini import DEFAULT_BASE_URL as GEMINI_BASE_URL
 from sine.llm.adapters.gemini import GeminiProvider
 from sine.llm.adapters.http import RetryPolicy
@@ -38,6 +39,7 @@ class ProviderFamily(StrEnum):
     OPENAI_COMPATIBLE = "openai_compatible"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    COHERE = "cohere"
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,15 +180,12 @@ PROFILES: Mapping[str, ProviderProfile] = {
         ),
         ProviderProfile(
             provider_id="cohere",
-            family=ProviderFamily.OPENAI_COMPATIBLE,
+            family=ProviderFamily.COHERE,
             description="Cohere Command, v2 chat API.",
             base_url="https://api.cohere.ai/v2",
             api_key_env="COHERE_API_KEY",
             requires_api_key=True,
-            notes=(
-                "Shares this family but returns content as a list of content "
-                "blocks; requires a dedicated response reader. Not usable yet."
-            ),
+            notes="Returns content as a list of content blocks; has its own response reader.",
         ),
         ProviderProfile(
             provider_id="ollama",
@@ -254,10 +253,6 @@ PROFILES: Mapping[str, ProviderProfile] = {
     )
 }
 
-#: Providers whose response reader is not implemented yet. Listed so that
-#: configuration errors are explicit instead of surfacing as confusing HTTP 404s.
-_PENDING = frozenset({"cohere"})
-
 
 def profile_for(provider_id: str) -> ProviderProfile:
     """Look up a provider profile, or explain what is available."""
@@ -293,12 +288,6 @@ def build_provider(
     """
 
     profile = profile_for(provider_id)
-
-    if profile.provider_id in _PENDING:
-        raise ProviderConfigurationError(
-            profile.provider_id,
-            "no response reader is implemented for this provider yet",
-        )
 
     resolved_url = profile.resolved_base_url(base_url)
     if not resolved_url:
@@ -345,6 +334,16 @@ def build_provider(
             )
         case ProviderFamily.GEMINI:
             return GeminiProvider(
+                provider_id=profile.provider_id,
+                base_url=resolved_url,
+                api_key=api_key,
+                structured_output=dialect,
+                http_client=http_client,
+                retry=retry,
+                timeout=timeout,
+            )
+        case ProviderFamily.COHERE:
+            return CohereProvider(
                 provider_id=profile.provider_id,
                 base_url=resolved_url,
                 api_key=api_key,
