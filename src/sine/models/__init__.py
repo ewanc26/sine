@@ -1,5 +1,76 @@
-"""Canonical Sine domain models."""
+"""Sine's music domain model.
 
-from sine.models.listening import ListeningEvent, Track
+This package is independent of both listening-history sources and LLM providers.
+Sources adapt into these types; the recommendation engine reads them.
+"""
 
-__all__ = ["ListeningEvent", "Track"]
+from sine.models.base import (
+    EntityKind,
+    HistoryModel,
+    TimeWindow,
+    aware_utc,
+    identity_key,
+    normalise_text,
+)
+from sine.models.history import (
+    ListeningEvent,
+    ListeningHistory,
+    deduplicate_events,
+    merge_duplicate_events,
+    normalise_events,
+    same_listen,
+    sort_events,
+)
+from sine.models.music import Album, Artist, Track
+from sine.models.profile import (
+    GapKind,
+    ListeningProfile,
+    ProfileGap,
+    ProfileSignal,
+    SignalKind,
+)
+from sine.models.recommendation import (
+    Confidence,
+    EvidenceKind,
+    Novelty,
+    Recommendation,
+    RecommendationEvidence,
+    RecommendationFocus,
+    RecommendationRequest,
+    RecommendationSet,
+)
+from sine.models.statistics import ListeningStatistics, PlayCount
+
+__all__ = [
+    "Album",
+    "Artist",
+    "Confidence",
+    "EntityKind",
+    "EvidenceKind",
+    "GapKind",
+    "HistoryModel",
+    "ListeningEvent",
+    "ListeningHistory",
+    "ListeningProfile",
+    "ListeningStatistics",
+    "Novelty",
+    "PlayCount",
+    "ProfileGap",
+    "ProfileSignal",
+    "Recommendation",
+    "RecommendationEvidence",
+    "RecommendationFocus",
+    "RecommendationRequest",
+    "RecommendationSet",
+    "SignalKind",
+    "TimeWindow",
+    "Track",
+    "aware_utc",
+    "deduplicate_events",
+    "identity_key",
+    "merge_duplicate_events",
+    "normalise_events",
+    "normalise_text",
+    "same_listen",
+    "sort_events",
+]
