@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from sine.llm.adapters.anthropic import ANTHROPIC_VERSION, AnthropicProvider
+from sine.llm.adapters.cohere import CohereProvider
 from sine.llm.adapters.gemini import GeminiProvider
 from sine.llm.adapters.http import RetryPolicy, error_for_response
 from sine.llm.adapters.openai_compatible import OpenAICompatibleProvider
@@ -88,6 +89,18 @@ def gemini_text(content: str = "hi", **extra: Any) -> dict[str, Any]:
     }
 
 
+def cohere_text(content: str = "hi", **extra: Any) -> dict[str, Any]:
+    return {
+        "id": "cohere-1",
+        "message": {
+            "role": "assistant",
+            "content": [{"type": "text", "text": content}],
+        },
+        "finish_reason": "COMPLETE",
+        **extra,
+    }
+
+
 class Wire:
     """Captures the requests an adapter would send and replays queued responses.
 
@@ -147,6 +160,12 @@ def anthropic_provider(wire: Wire, **kwargs: Any) -> AnthropicProvider:
 def gemini_provider(wire: Wire, **kwargs: Any) -> GeminiProvider:
     return GeminiProvider(
         api_key="gm-test", http_client=client_for(wire), retry=FAST, **kwargs
+    )
+
+
+def cohere_provider(wire: Wire, **kwargs: Any) -> CohereProvider:
+    return CohereProvider(
+        api_key="co-test", http_client=client_for(wire), retry=FAST, **kwargs
     )
 
 
@@ -673,6 +692,120 @@ def test_gemini_requires_an_api_key_before_sending_anything() -> None:
     assert wire.requests == []
 
 
+# ------------------------------------------------------------------- cohere
+
+
+def test_cohere_sends_messages_with_a_system_turn_and_bearer_auth() -> None:
+    wire = Wire(httpx.Response(200, json=cohere_text()))
+    cohere_provider(wire).generate("command-r-plus", REQUEST)
+
+    assert wire.url == "https://api.cohere.ai/v2/chat"
+    request = wire.requests[0]
+    assert request.headers["authorization"] == "Bearer co-test"
+    body = wire.json()
+    assert body["model"] == "command-r-plus"
+    assert body["messages"][0] == {"role": "system", "content": "be brief"}
+    assert body["messages"][1] == {"role": "user", "content": "hello"}
+    assert body["max_tokens"] == 256
+    assert body["temperature"] == 0.5
+
+
+def test_cohere_sends_its_own_json_schema_response_format() -> None:
+    wire = Wire(httpx.Response(200, json=cohere_text()))
+    cohere_provider(wire).generate("command-r-plus", SCHEMA_REQUEST)
+
+    assert wire.json()["response_format"] == {
+        "type": "json_object",
+        "json_schema": SCHEMA,
+    }
+
+
+def test_cohere_sends_a_bare_json_object_format_without_a_schema() -> None:
+    wire = Wire(httpx.Response(200, json=cohere_text()))
+    cohere_provider(wire).generate("command-r-plus", REQUEST)
+
+    assert wire.json()["response_format"] == {"type": "json_object"}
+
+
+def test_cohere_flattens_typed_content_blocks() -> None:
+    payload = cohere_text("the answer")
+    response = cohere_provider(Wire(httpx.Response(200, json=payload))).generate(
+        "command-r-plus", REQUEST
+    )
+    assert response.text == "the answer"
+
+
+def test_cohere_reports_a_response_with_no_text_content() -> None:
+    payload = {
+        "message": {"role": "assistant", "content": []},
+        "finish_reason": "COMPLETE",
+    }
+    with pytest.raises(ProviderResponseError, match="no text content"):
+        cohere_provider(Wire(httpx.Response(200, json=payload))).generate(
+            "command-r-plus", REQUEST
+        )
+
+
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [
+        ("COMPLETE", FinishReason.STOP),
+        ("STOP_SEQUENCE", FinishReason.STOP),
+        ("MAX_TOKENS", FinishReason.LENGTH),
+        ("ERROR", FinishReason.ERROR),
+        ("TOOL_CALL", FinishReason.OTHER),
+        ("something-new", FinishReason.OTHER),
+    ],
+)
+def test_cohere_finish_reasons_are_mapped(
+    reported: str, expected: FinishReason
+) -> None:
+    payload = cohere_text(finish_reason=reported)
+    response = cohere_provider(Wire(httpx.Response(200, json=payload))).generate(
+        "command-r-plus", REQUEST
+    )
+    assert response.finish_reason is expected
+
+
+def test_cohere_usage_is_read_from_the_tokens_field() -> None:
+    payload = cohere_text(
+        usage={
+            "billed_units": {"input_tokens": 9, "output_tokens": 4},
+            "tokens": {"input_tokens": 10, "output_tokens": 5},
+        }
+    )
+    response = cohere_provider(Wire(httpx.Response(200, json=payload))).generate(
+        "command-r-plus", REQUEST
+    )
+    assert response.usage is not None
+    assert response.usage.input_tokens == 10
+    assert response.usage.output_tokens == 5
+
+
+def test_cohere_reads_the_model_catalogue_and_drops_non_chat_models() -> None:
+    payload = {
+        "models": [
+            {"name": "command-r-plus", "endpoints": ["chat"], "context_length": 128000},
+            {"name": "embed-v4", "endpoints": ["embed"]},
+        ]
+    }
+    wire = Wire(httpx.Response(200, json=payload))
+    models = cohere_provider(wire).list_models()
+
+    assert wire.url == "https://api.cohere.ai/v1/models"
+    assert [info.model_id for info in models] == ["command-r-plus"]
+    assert models[0].context_window == 128000
+
+
+def test_cohere_requires_an_api_key_before_sending_anything() -> None:
+    wire = Wire()
+    provider = CohereProvider(http_client=client_for(wire), retry=FAST)
+
+    with pytest.raises(ProviderConfigurationError, match="API key"):
+        provider.generate("command-r-plus", REQUEST)
+    assert wire.requests == []
+
+
 # ------------------------------------------------------- status code mapping
 
 
@@ -900,7 +1033,7 @@ def test_profiles_record_their_own_limitations() -> None:
     assert "guided_json" in (PROFILES["nvidia"].notes or "")
     assert "Sampling parameters are deprecated" in (PROFILES["anthropic"].notes or "")
     assert PROFILES["cohere"].notes
-    assert "not usable yet" in PROFILES["cohere"].notes.lower()
+    assert "content blocks" in PROFILES["cohere"].notes.lower()
 
 
 def test_profiles_that_require_authentication_name_their_environment_variable() -> None:
@@ -990,13 +1123,6 @@ def test_a_backend_can_be_asked_for_a_stronger_dialect_than_it_documents() -> No
     provider.generate("deepseek-chat", SCHEMA_REQUEST)
 
     assert wire.json()["response_format"]["type"] == "json_schema"
-
-
-def test_the_pending_provider_is_refused_with_an_explanation() -> None:
-    """Cohere needs its own reader; failing at config time beats a confusing 404 later."""
-
-    with pytest.raises(ProviderConfigurationError, match="cohere.*no response reader"):
-        build_provider("cohere", api_key="k")
 
 
 def test_capabilities_default_to_not_supporting_structured_output() -> None:
