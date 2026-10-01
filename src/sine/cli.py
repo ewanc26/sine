@@ -31,16 +31,27 @@ from sine.llm.errors import ProviderConfigurationError, ProviderError
 from sine.llm.registry import known_providers, profile_for
 from sine.models.recommendation import (
     Artist,
+    Playlist,
+    PlaylistRequest,
     RecommendationFocus,
     RecommendationRequest,
     RecommendationSet,
 )
 from sine.profile.builder import build_profile
 from sine.profile.context import render_profile_context
-from sine.recommend.engine import RecommendationEngine, RecommendationError
+from sine.recommend.engine import (
+    MINUTES_PER_TRACK,
+    RecommendationEngine,
+    RecommendationError,
+)
 from sine.storage import Store
 
 PROG = "sine"
+
+#: Tracks requested when the caller names no count. A playlist wants a longer
+#: default, because an ordered sequence is a session rather than a shortlist.
+DEFAULT_TRACK_LIMIT = 10
+DEFAULT_PLAYLIST_LIMIT = 20
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -218,7 +229,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _add_request_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--limit", type=int, default=10, help="Tracks to request (default: 10)."
+        "--limit",
+        type=int,
+        default=None,
+        help=(
+            "Tracks to request (default: 10, or 20 for a playlist with no length "
+            "target)."
+        ),
     )
     parser.add_argument(
         "--focus",
@@ -247,6 +264,25 @@ def _add_request_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--guidance", help="Free-text steer, passed to the model verbatim."
+    )
+    parser.add_argument(
+        "--playlist",
+        action="store_true",
+        help="Build an ordered playlist instead of a set of tracks.",
+    )
+    parser.add_argument(
+        "--playlist-title",
+        metavar="TITLE",
+        help="Title or theme for the playlist. Implies --playlist.",
+    )
+    parser.add_argument(
+        "--minutes",
+        type=int,
+        metavar="MINUTES",
+        help=(
+            "Approximate playlist length to aim for. Implies --playlist. Sine has no "
+            "track duration data, so this sizes the request and is never verified."
+        ),
     )
 
 
@@ -409,15 +445,7 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     if profile.statistics.event_count == 0:
         _fail(f"history {args.history!r} has no plays; import a history first")
 
-    request = RecommendationRequest(
-        limit=args.limit,
-        focus=RecommendationFocus(args.focus),
-        allow_replays=args.allow_replays,
-        seed_artists=tuple(Artist(name=name) for name in args.seed_artist),
-        exclude_artists=tuple(Artist(name=name) for name in args.exclude_artist),
-        guidance=args.guidance,
-    )
-
+    request = _build_request(args)
     config = _load_config(args)
     config.require_llm()
     provider = _build_provider(config)
@@ -427,6 +455,16 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
         max_output_tokens=config.llm.settings.max_output_tokens,
     )
 
+    if isinstance(request, PlaylistRequest):
+        print(
+            f"asking {engine.model.qualified_id} for a playlist of up to "
+            f"{request.limit} track(s)…",
+            file=sys.stderr,
+        )
+        playlist = engine.playlist(profile, request)
+        _print_playlist(playlist, engine.model.qualified_id, as_json=args.json)
+        return 0
+
     print(
         f"asking {engine.model.qualified_id} for {request.limit} recommendation(s)…",
         file=sys.stderr,
@@ -434,6 +472,51 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     result = engine.recommend(profile, request)
     _print_recommendations(result, engine.model.qualified_id, as_json=args.json)
     return 0
+
+
+def _build_request(args: argparse.Namespace) -> RecommendationRequest:
+    """Build the request from the command line, choosing a set or a playlist.
+
+    ``--playlist-title`` and ``--minutes`` imply ``--playlist``: a title or a length
+    target is a statement about a sequence, and silently ignoring them while returning
+    an unordered set would be worse than refusing.
+    """
+
+    common: dict[str, Any] = {
+        "focus": RecommendationFocus(args.focus),
+        "allow_replays": args.allow_replays,
+        "seed_artists": tuple(Artist(name=name) for name in args.seed_artist),
+        "exclude_artists": tuple(Artist(name=name) for name in args.exclude_artist),
+        "guidance": args.guidance,
+    }
+
+    if not (args.playlist or args.playlist_title or args.minutes):
+        return RecommendationRequest(limit=args.limit or DEFAULT_TRACK_LIMIT, **common)
+
+    limit = _playlist_track_count(args)
+    return PlaylistRequest(
+        **common,
+        limit=limit,
+        title=args.playlist_title,
+        target_minutes=args.minutes,
+    )
+
+
+def _playlist_track_count(args: argparse.Namespace) -> int:
+    """Decide how many tracks to ask for.
+
+    An explicit ``--limit`` wins. Otherwise a ``--minutes`` target is converted with
+    a conventional average track length, which is an estimate about nothing in
+    particular: it sizes the request, and the model is told not to state durations.
+    A playlist with neither gets more tracks than a plain list of recommendations,
+    because a list of ten is a short listening session and a sequence of ten is not.
+    """
+
+    if args.limit:
+        return args.limit
+    if args.minutes:
+        return max(5, min(50, round(args.minutes / MINUTES_PER_TRACK)))
+    return DEFAULT_PLAYLIST_LIMIT
 
 
 # ------------------------------------------------------------------------- plumbing
@@ -535,6 +618,44 @@ def _print_recommendations(
             print(f"   - {evidence.kind.value}: {evidence.statement}{references}")
     if result.notes:
         print(f"\nnotes from {qualified_id}:\n{result.notes}")
+
+
+def _print_playlist(playlist: Playlist, qualified_id: str, *, as_json: bool) -> None:
+    if as_json:
+        print(
+            json.dumps(playlist.model_dump(mode="json"), indent=2, ensure_ascii=False)
+        )
+        return
+
+    print(f"\n{playlist.title}")
+    print(f"{len(playlist.tracks)} track(s), in this order.")
+    if playlist.intent:
+        print(f"\n{playlist.intent}")
+
+    if not playlist.tracks:
+        print("\nno tracks were returned.")
+    for entry in playlist.tracks:
+        print(f"\n{entry.position}. {entry.track.display_name}")
+        if entry.transition:
+            print(f"   {entry.transition}")
+        print(f"   {entry.rationale}")
+        print(
+            f"   [{entry.novelty.value}, confidence {entry.confidence.value}]"
+            + (
+                f" genre hints: {', '.join(entry.genre_hints)}"
+                if entry.genre_hints
+                else ""
+            )
+        )
+        for evidence in entry.evidence:
+            references = (
+                f" (refers to: {', '.join(evidence.references)})"
+                if evidence.references
+                else ""
+            )
+            print(f"   - {evidence.kind.value}: {evidence.statement}{references}")
+    if playlist.notes:
+        print(f"\nnotes from {qualified_id}:\n{playlist.notes}")
 
 
 def _fail(message: str) -> NoReturn:

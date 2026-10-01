@@ -14,8 +14,13 @@ from collections.abc import Mapping
 from sine.llm.messages import Message
 from sine.llm.structured import describe_schema
 from sine.models.profile import ListeningProfile
-from sine.models.recommendation import RecommendationFocus, RecommendationRequest
+from sine.models.recommendation import (
+    PlaylistRequest,
+    RecommendationFocus,
+    RecommendationRequest,
+)
 from sine.profile.context import render_profile_context, render_request_context
+from sine.recommend.focus import BASE_GUIDANCE, focus_guidance
 
 SYSTEM_PROMPT = """\
 You are the reasoning component of Sine, a music recommendation tool.
@@ -42,37 +47,48 @@ observation.
 work from.
 """
 
-FOCUS_GUIDANCE: Mapping[RecommendationFocus, str] = {
-    RecommendationFocus.DISCOVERY: (
-        "Recommend tracks by artists the listener has not played before, drawn from "
-        "the musical neighbourhood of what they do play."
-    ),
-    RecommendationFocus.DEEPENING: (
-        "Recommend deeper cuts by artists the listener already plays, including "
-        "rarer material, and work that sits alongside their established listening."
-    ),
-    RecommendationFocus.RECENT_ROTATION: (
-        "Weight the listener's most recent listening most heavily. They are asking "
-        "what suits the current phase, not the long run."
-    ),
-    RecommendationFocus.FAMILIARITY: (
-        "Favour well-known, accessible tracks in the listener's own territory. "
-        "Reliability beats novelty here."
-    ),
-    RecommendationFocus.SURPRISE: (
-        "Stretch beyond the obvious. Take the listener's listening seriously but \
-reach past its edge, and explain the connection you are making."
-    ),
-}
+PLAYLIST_RULES = """
+
+When you are asked for a playlist rather than a list:
+
+- The order is the answer. Choose tracks because of where they sit next to each \
+other, not because each is independently the best pick.
+- Give every track a "position", counting from 1, and a "transition" saying why it \
+follows the one before it. Omit the transition for the first track; there is \
+nothing to transition from.
+- Describe connections in musical terms the listener can hear — mood, tempo, \
+texture, vocal style, the ground shifting — and ground them in the history. Do not \
+invent BPMs, key changes, release years, or credits to justify a placement.
+- Do not state or estimate track durations. Sine has no duration data, so any \
+length you state would be invented. Pick a count that plausibly fits the requested \
+length and let the listener judge it.
+- Give the sequence a title and say in one paragraph what it is trying to do.
+"""
+
+#: The instruction for each focus, before it is adapted to the listener's data.
+FOCUS_GUIDANCE: Mapping[RecommendationFocus, str] = BASE_GUIDANCE
+
+#: Applies to discovery only, and only when the measurements did not already set the
+#: direction: a listener playing thirty artists evenly is not a case for reaching
+#: further out, nor one for a "most of this should be close to home" instruction from
+#: anywhere else, so this is where the nudge belongs.
+BALANCE_NOTE = (
+    "Balance familiarity and discovery: the listener has not asked to be surprised, "
+    "so most recommendations should sit near what they already play rather than far "
+    "from it."
+)
 
 
-def build_system_prompt(*, include_schema: str | None = None) -> Message:
+def build_system_prompt(
+    *, include_schema: str | None = None, playlist: bool = False
+) -> Message:
     """Build the system message, optionally appending the required JSON schema."""
 
+    rules = SYSTEM_PROMPT + PLAYLIST_RULES if playlist else SYSTEM_PROMPT
     if include_schema is None:
-        return Message.system(SYSTEM_PROMPT)
+        return Message.system(rules)
     return Message.system(
-        f"{SYSTEM_PROMPT}\n\n"
+        f"{rules}\n\n"
         "Reply with a single JSON object and nothing else. No prose before or "
         "after it, no Markdown code fences. It must satisfy this JSON Schema:\n\n"
         f"{include_schema}"
@@ -84,20 +100,46 @@ def build_user_prompt(
 ) -> Message:
     """Build the user message from rendered profile and request context."""
 
+    task = focus_guidance(request.focus, profile.statistics)
     sections = [
         render_profile_context(profile),
         "",
         render_request_context(request),
         "",
         "TASK",
-        FOCUS_GUIDANCE[request.focus],
+        *task,
     ]
-    if request.focus is RecommendationFocus.DISCOVERY and not request.seed_artists:
-        sections.append(
-            "Balance familiarity and discovery: the listener has not asked to be "
-            "surprised, so most recommendations should sit near what they already "
-            "play rather than far from it."
-        )
+    if (
+        request.focus is RecommendationFocus.DISCOVERY
+        and not request.seed_artists
+        and len(task) == 1
+    ):
+        sections.append(BALANCE_NOTE)
+    return Message.user("\n".join(sections))
+
+
+def build_playlist_prompt(
+    profile: ListeningProfile, request: PlaylistRequest
+) -> Message:
+    """Build the user message for an ordered sequence.
+
+    A playlist needs the same grounding as a set of recommendations and more: the
+    listener is asking what follows what, so the task section says so explicitly
+    rather than leaving the model to treat the list as a ranking.
+    """
+
+    sections = [
+        render_profile_context(profile),
+        "",
+        render_request_context(request),
+        "",
+        "TASK",
+        "Build one ordered sequence, not a ranked list. Every position must earn \
+its place by what it does after the track before it.",
+        *focus_guidance(request.focus, profile.statistics),
+    ]
+    if request.title:
+        sections.append(f"The listener asked for a playlist called: {request.title}")
     return Message.user("\n".join(sections))
 
 
@@ -112,9 +154,10 @@ def build_json_reminder(schema: Mapping[str, object]) -> Message:
 
 
 __all__ = [
-    "FOCUS_GUIDANCE",
+    "PLAYLIST_RULES",
     "SYSTEM_PROMPT",
     "build_json_reminder",
+    "build_playlist_prompt",
     "build_system_prompt",
     "build_user_prompt",
 ]

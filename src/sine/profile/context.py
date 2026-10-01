@@ -16,7 +16,7 @@ from typing import TypeVar
 
 from sine.models.base import HistoryModel
 from sine.models.profile import ListeningProfile
-from sine.models.recommendation import RecommendationRequest
+from sine.models.recommendation import PlaylistRequest, RecommendationRequest
 from sine.models.statistics import PlayCount
 
 ItemT = TypeVar("ItemT", bound=HistoryModel)
@@ -106,15 +106,51 @@ def _entity_lines[ItemT](
 def render_request_context(request: RecommendationRequest) -> str:
     """Render the caller's request as model-facing context text."""
 
+    if isinstance(request, PlaylistRequest):
+        return _render_playlist_request(request)
+
     lines = [
         "REQUEST",
         f"- focus: {request.focus.value}",
         f"- number of tracks: {request.limit}",
     ]
-    lines.append(
+    lines.extend(_shared_request_lines(request))
+    return "\n".join(lines)
+
+
+def _render_playlist_request(request: PlaylistRequest) -> str:
+    """Render a playlist request, including the length target as a request.
+
+    The target is stated as an aim, not a constraint, and the model is told it
+    cannot have durations to work from. Saying so is the point: a model handed a
+    number with no explanation will happily invent track lengths to satisfy it.
+    """
+
+    lines = [
+        "REQUEST",
+        "- shape: one ordered playlist, not a ranked list",
+        f"- focus: {request.focus.value}",
+        f"- at most {request.limit} tracks",
+    ]
+    if request.target_minutes:
+        lines.append(
+            f"- the listener wants roughly {request.target_minutes} minutes of "
+            "listening. This is an aim, not a measurement: choose a count that "
+            "plausibly fits it, and do not state track durations."
+        )
+    if request.title:
+        lines.append(f"- requested theme: {request.title}")
+    lines.extend(_shared_request_lines(request))
+    return "\n".join(lines)
+
+
+def _shared_request_lines(request: RecommendationRequest) -> list[str]:
+    """Request lines that apply whether the caller wants a set or a sequence."""
+
+    lines = [
         "- may recommend tracks already played: "
         + ("yes" if request.allow_replays else "no")
-    )
+    ]
     if request.seed_artists:
         lines.append(
             "- anchor on these artists: "
@@ -127,7 +163,7 @@ def render_request_context(request: RecommendationRequest) -> str:
         )
     if request.guidance:
         lines.append(f"- additional guidance from the listener: {request.guidance}")
-    return "\n".join(lines)
+    return lines
 
 
 __all__ = ["HEADER", "render_profile_context", "render_request_context"]
