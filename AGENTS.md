@@ -4,7 +4,7 @@ Guidance for AI coding agents working in **sine**.
 
 ## Project overview
 
-Sine is an LLM-powered music recommendation system built around Apple Music-derived listening history.
+Sine is an LLM-powered music recommendation system built around listening history from music services and imported sources.
 
 - Language: Python 3.12
 - Package manager: uv
@@ -21,7 +21,8 @@ Sine is an LLM-powered music recommendation system built around Apple Music-deri
 
 ## Project-specific rules
 
-- Keep listening-history ingestion separate from recommendation logic.
+- Keep music-service and listening-history ingestion separate from recommendation logic.
+- Keep each music-service integration behind a narrow ingestion interface.
 - Keep provider-specific LLM code behind narrow interfaces.
 - Use Pydantic models for data crossing module or provider boundaries where practical.
 - Prefer deterministic processing for parsing, normalisation, filtering, and profile construction.
@@ -30,7 +31,9 @@ Sine is an LLM-powered music recommendation system built around Apple Music-deri
 - Treat listening history as user-owned data and do not add telemetry or external transmission without a clear reason and documentation.
 - Do not introduce a machine-learning framework unless the project actually requires model training or inference beyond the configured LLM APIs.
 - Do not couple the core system to Apple's private or undocumented APIs when the official Apple Music API can provide the required data.
-- Keep Apple Music ingestion, imported historical scrobbles, and LLM providers independently replaceable.
+- Keep music-service integrations, imported historical scrobbles, and LLM providers independently replaceable.
+- Treat music services as interchangeable sources, not as the canonical domain model or storage format.
+- Keep source-specific identifiers and metadata at the ingestion boundary; normalised domain models must not depend on a particular service.
 
 ## Python conventions
 
@@ -72,7 +75,7 @@ Prompts should optimise for personalised recommendations grounded in the listene
 
 Tests should cover:
 
-- listening-history parsing and normalisation;
+- listening-history parsing and normalisation across multiple source shapes;
 - duplicate and malformed events;
 - profile/context construction;
 - recommendation parsing and validation;
@@ -99,4 +102,4 @@ When adding an integration or configuration option, document:
 - required credentials or configuration;
 - relevant limitations.
 
-Keep the distinction between Apple Music, historical scrobble sources, and LLM providers clear. Sine is an independent project and must not imply affiliation with Apple.
+Keep the distinction between music-service sources, historical imports, and LLM providers clear. Sine is an independent project and must not imply affiliation with any music service.
