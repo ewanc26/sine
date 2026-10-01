@@ -2,14 +2,14 @@
 
 Sine is an LLM-powered music recommendation system built around your listening history.
 
-It takes Apple Music-derived listening data, builds a structured picture of what you listen to, and uses a language model to recommend music based on that history.
+It takes listening data from one or more music services or imports, builds a structured picture of what you listen to, and uses a language model to recommend music based on that history.
 
 ## How it works
 
 Sine is designed as a local-first data pipeline:
 
 ```
-Apple Music / listening-history source
+Music service / listening-history source
               │
               ▼
         Ingestion adapter
@@ -27,9 +27,9 @@ Apple Music / listening-history source
        Recommendations
 ```
 
-The important distinction is between listening data and the recommendation model. Sine should be able to consume different sources of listening history without tying the recommendation logic to one ingestion service or LLM provider.
+The important distinction is between listening data and the recommendation model. Sine should be able to consume listening history from different music services and import formats without tying the recommendation logic to one service, data source, or LLM provider.
 
-Apple's MusicKit and Apple Music API provide access to a user's recently played content and other personal music data with authorisation. They do not constitute a complete historical scrobble database, so Sine treats historical imports and live Apple Music access as separate ingestion paths.
+Music services expose different APIs, permissions, identifiers, and amounts of historical data. Sine therefore treats each service as an ingestion adapter and keeps source-specific limitations at the ingestion boundary. Historical imports and live service access can coexist without making any one service the canonical source.
 
 ## Tech Stack
 
@@ -70,6 +70,8 @@ Sine is intended to:
 - balance familiarity with discovery;
 - give the LLM structured, relevant context rather than an unbounded history dump;
 - keep recommendation logic independent of a single LLM provider;
+- keep listening data independent of a single music service;
+- allow multiple listening sources to be combined where their data can be normalised safely;
 - keep listening data local unless an external service is explicitly required.
 
 Sine is not intended to replace Apple Music's recommendation systems or reproduce their internal algorithms.
@@ -111,11 +113,11 @@ External LLM providers may receive the listening context supplied to them. Provi
 
 Credentials and user data must never be committed to the repository.
 
-## Apple Music
+## Music services
 
-Sine is an independent project and is not affiliated with or endorsed by Apple.
+Sine is service-agnostic. Apple Music is an intended ingestion source, but it is not the canonical representation of a listener's history and Sine is not otherwise dependent on Apple's ecosystem.
 
-Apple Music and MusicKit are trademarks of Apple Inc.
+Individual integrations must document their authentication requirements, available data, identifiers, historical limitations, and any data sent to external services.
 
 ## Contributing
 
