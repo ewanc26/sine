@@ -2,33 +2,63 @@
 
 Sine is an LLM-powered music recommendation system built around your listening history.
 
-It takes Apple Music-derived scrobble data, uses that history as context, and asks a language model to reason about listening patterns and suggest music that fits them.
+It takes Apple Music-derived listening data, builds a structured picture of what you listen to, and uses a language model to recommend music based on that history.
 
 ## How it works
 
-At a high level, Sine sits between listening-history data and an LLM:
+Sine is designed as a local-first data pipeline:
 
 ```
-Apple Music
-    │
-    ▼
-Scrobble / listening history
-    │
-    ▼
-Sine
-    │
-    ├── listening profile
-    ├── recent listening
-    └── relevant musical context
-    │
-    ▼
-LLM
-    │
-    ▼
-Music recommendations
+Apple Music / listening-history source
+              │
+              ▼
+        Ingestion adapter
+              │
+              ▼
+       Normalised history
+              │
+              ▼
+       Listening profile
+              │
+              ▼
+        LLM provider
+              │
+              ▼
+       Recommendations
 ```
 
-The exact ingestion, modelling, prompting, and recommendation pipeline is still being developed.
+The important distinction is between listening data and the recommendation model. Sine should be able to consume different sources of listening history without tying the recommendation logic to one ingestion service or LLM provider.
+
+Apple's MusicKit and Apple Music API provide access to a user's recently played content and other personal music data with authorisation. They do not constitute a complete historical scrobble database, so Sine treats historical imports and live Apple Music access as separate ingestion paths.
+
+## Tech Stack
+
+- **Language**: Python 3.12
+- **Package manager**: uv
+- **Data validation**: Pydantic
+- **HTTP**: httpx
+- **LLM integration**: provider-specific SDKs behind a Sine interface
+- **Testing**: pytest
+- **Linting and formatting**: Ruff
+
+Python is used for the core because Sine is primarily a data-processing and LLM application. It provides strong support for structured data, API clients, validation, and model SDKs without introducing a separate language for the recommendation pipeline.
+
+The project does not currently require a machine-learning framework. The initial recommendation system uses an LLM over structured listening context rather than training its own model.
+
+## Project Structure
+
+```
+src/
+└── sine/
+    ├── ingestion/       # Listening-history source adapters
+    ├── models/          # Typed domain and API models
+    ├── profile/         # Listening-profile construction
+    ├── recommend/       # Recommendation logic and LLM providers
+    └── cli.py           # Command-line interface
+tests/                   # Unit and integration tests
+```
+
+The structure is deliberately small while the project is being established. New modules should follow the existing boundaries rather than introducing framework-specific layers without a concrete need.
 
 ## Goals
 
@@ -36,29 +66,56 @@ Sine is intended to:
 
 - understand a listener from their actual listening history;
 - use both long-term patterns and recent listening;
+- distinguish repeated listening from one-off behaviour;
 - balance familiarity with discovery;
-- make the context supplied to the LLM explicit and reproducible;
-- work with a listener's own data rather than depending on a proprietary recommendation profile.
+- give the LLM structured, relevant context rather than an unbounded history dump;
+- keep recommendation logic independent of a single LLM provider;
+- keep listening data local unless an external service is explicitly required.
 
 Sine is not intended to replace Apple Music's recommendation systems or reproduce their internal algorithms.
 
-## Project status
+## Getting Started
 
-Sine is an early-stage project. The repository currently contains the project documentation and licensing while the implementation is being developed.
+### Prerequisites
 
-Interfaces, data formats, model providers, and internal architecture should therefore be considered subject to change.
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
+
+### Installation
+
+```sh
+uv sync
+```
+
+### Development
+
+```sh
+uv run sine
+```
+
+The CLI and available commands are still under development.
+
+### Checks
+
+```sh
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+```
 
 ## Data and privacy
 
-Listening history can reveal highly personal information about someone's tastes and habits. Sine should treat imported listening data as user-owned input and avoid collecting or transmitting it anywhere that is not explicitly required for the configured recommendation workflow.
+Listening history can reveal highly personal information about someone's tastes and habits. Sine treats imported listening data as user-owned input.
 
-When an external LLM provider is used, users should understand what listening data is sent to that provider and under which terms.
+External LLM providers may receive the listening context supplied to them. Provider integrations must make that data flow explicit rather than hiding it behind generic recommendation code.
+
+Credentials and user data must never be committed to the repository.
 
 ## Apple Music
 
 Sine is an independent project and is not affiliated with or endorsed by Apple.
 
-Apple Music is a trademark of Apple Inc.
+Apple Music and MusicKit are trademarks of Apple Inc.
 
 ## Contributing
 
