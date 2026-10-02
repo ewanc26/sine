@@ -18,7 +18,7 @@ log line, or ``model_dump`` cannot leak it.
     max_output_tokens = 4096
 
     [data]
-    data_dir = "~/.sine"
+    data_dir = "~/.ewanc26/sine"
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ CONFIG_ENV_VAR = "SINE_CONFIG"
 DEFAULT_CONFIG_FILENAME = "sine.toml"
 USER_CONFIG_PATHS: tuple[Path, ...] = (
     Path("~/.config/sine/sine.toml"),
-    Path("~/.sine/sine.toml"),
+    Path("~/.ewanc26/sine/sine.toml"),
 )
 
 
@@ -131,7 +131,7 @@ class DataConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    data_dir: Path = Field(default=Path("~/.sine"))
+    data_dir: Path = Field(default=Path("~/.ewanc26/sine"))
 
     @property
     def history_dir(self) -> Path:

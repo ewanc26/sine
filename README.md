@@ -119,11 +119,11 @@ temperature = 0.6
 max_output_tokens = 4096
 
 [data]
-data_dir = "~/.sine"
+data_dir = "~/.ewanc26/sine"
 ```
 
 The file is looked for at `--config`, then `$SINE_CONFIG`, then `./sine.toml`, then
-`~/.config/sine/sine.toml`, then `~/.sine/sine.toml`. The provider and model can
+`~/.config/sine/sine.toml`, then `~/.ewanc26/sine/sine.toml`. The provider and model can
 also come from `SINE_LLM_PROVIDER` and `SINE_LLM_MODEL`, and the data directory
 from `SINE_DATA_DIR`. Importing and profiling need no model at all, so `[llm]`
 may be absent; only `recommend` requires it.
