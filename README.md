@@ -1,5 +1,6 @@
 <p align="center">
   <a href="https://github.com/ewanc26/sine/actions/workflows/ci.yml"><img src="https://github.com/ewanc26/sine/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ewanc26/sine/releases/latest"><img src="https://img.shields.io/github/v/release/ewanc26/sine?sort=semver" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ewanc26/sine?label=licence" alt="Licence"></a>
   <a href="https://github.com/sponsors/ewanc26"><img src="https://img.shields.io/github/sponsors/ewanc26?logo=githubsponsors&logoColor=white&label=sponsors" alt="Sponsor"></a>
 </p>
@@ -41,8 +42,7 @@ Two boundaries matter for trusting the output:
 
 **Observation and inference are kept apart.** Everything up to the profile is deterministic: parsing, normalisation, deduplication, and statistics are computed from the history alone, with no model involved. The profile records what was measured, marks every interpretation as an interpretation, and states what the data cannot support. A thin history produces explicit gaps rather than confident nonsense.
 
-**The brief adapts to the listener.** `--focus` says what kind of answer was asked for, and the instruction that follows it is derived from that listener's own measurements. Asking for discovery from someone whose plays are concentrated asks the model to reach furth
-er out; asking the same of someone already playing thirty artists once each tells it that more of the same is not discovery. Every adjustment cites a number from the history and says what the data cannot show, so the brief stays a set of observations rather than a personality assessment.
+**The brief adapts to the listener.** `--focus` says what kind of answer was asked for, and the instruction that follows it is derived from that listener's own measurements. Asking for discovery from someone whose plays are concentrated asks the model to reach further out; asking the same of someone already playing thirty artists once each tells it that more of the same is not discovery. Every adjustment cites a number from the history and says what the data cannot show, so the brief stays a set of observations rather than a personality assessment.
 
 **The model is a recommender, not a database.** Whatever it returns is validated against a schema before use, and one malformed reply is repaired once before being reported as an error. Sine then applies what the model cannot be trusted to do itself: drops tracks the listener has already played (unless `--allow-replays`), drops excluded artists and duplicates, labels each track as a replay, a new track by a known artist, or a new artist, and renumbers a playlist so its positions stay contiguous. The rendering is deterministic, so `sine profile --context` shows exactly what a model would be sent.
 
@@ -68,8 +68,7 @@ The project does not currently require a machine-learning framework. The initial
 src/
 └── sine/
     ├── cli.py           # Command-line interface
-    ├── config.py        # Typed configuration and environment overrid
-es
+    ├── config.py        # Typed configuration and environment overrides
     ├── storage.py       # Local history and profile storage
     ├── ingestion/       # Listening-history sources and normalisation
     ├── models/          # Typed domain models
@@ -131,8 +130,7 @@ data_dir = "~/.ewanc26/sine"
 ```
 
 The file is looked for at `--config`, then `$SINE_CONFIG`, then `./sine.toml`, then
-`~/.config/sine/sine.toml`, then `~/.ewanc26/sine/sine
-.toml`. The provider and model can
+`~/.config/sine/sine.toml`, then `~/.ewanc26/sine/sine.toml`. The provider and model can
 also come from `SINE_LLM_PROVIDER` and `SINE_LLM_MODEL`, and the data directory
 from `SINE_DATA_DIR`. Importing and profiling need no model at all, so `[llm]`
 may be absent; only `recommend` requires it.
@@ -177,8 +175,7 @@ guessed at.
 `surprise`. It names the kind of answer asked for; the instruction that follows it
 is derived from the listener's own statistics, so the same focus produces a
 different brief for a habitual listener and a habitual explorer. `sine profile
-<history> --context` shows the 
-measurements those adjustments are read from.
+<history> --context` shows the measurements those adjustments are read from.
 
 ### Playlists
 
@@ -217,8 +214,7 @@ Credentials and user data must never be committed to the repository.
 ## Listening sources
 
 Sine is service-agnostic. A service is an ingestion source, not the canonical
-representation of a listener's history, and Sine is not 
-dependent on any one
+representation of a listener's history, and Sine is not dependent on any one
 ecosystem.
 
 Each source below reads a file export only. None of them requires an account, a
