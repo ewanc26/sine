@@ -29,4 +29,4 @@ uv run ruff format --check .
 
 ## Licence
 
-AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms. Contributions are accepted under the same terms.
+AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms.
