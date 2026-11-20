@@ -5,7 +5,7 @@ description = "An LLM-powered music recommendation system built around listening
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "httpx>=0.28,<1",
+    "httpx>=0.28.1,<1",
     "pydantic>=2.0,<3",
 ]
 
