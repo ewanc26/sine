@@ -243,3 +243,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for repository guidance.
 ## Licence
 
 See [LICENSE](LICENSE) for the GNU Affero General Public License, version 3 or any later version.
+
+Copyright (C) 2026 Ewan Croft (ewanc26).

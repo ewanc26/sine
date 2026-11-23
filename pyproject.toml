@@ -3,6 +3,8 @@ name = "sine"
 version = "0.1.0"
 description = "An LLM-powered music recommendation system built around listening history."
 readme = "README.md"
+authors = [{ name = "Ewan Croft (ewanc26)" }]
+license = { text = "AGPL-3.0-or-later" }
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28,<1",
