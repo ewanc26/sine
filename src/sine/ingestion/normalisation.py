@@ -197,7 +197,7 @@ def parse_timestamp(value: object, options: IngestOptions) -> datetime:
         try:
             # The formats a source may use carry no zone; _localise decides whether a
             # default zone is available or the record must be rejected.
-            return _localise(datetime.strptime(raw, fmt), options)  # noqa: DTZ007
+            return _localise(datetime.strptime(raw, fmt), options)
         except ValueError:
             continue
 
